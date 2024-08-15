@@ -1,6 +1,7 @@
 require 'optparse'
 require 'net/http'
 require 'uri'
+require 'fileutils'
 
 options = {
   recursive: false,
@@ -52,6 +53,14 @@ def needed_image_format?(url)
   url.downcase.end_with?('.jpg', '.jpeg', '.png', '.gif', '.bmp')
 end
 
+def create_directory(directory)
+  FileUtils.mkdir_p(directory) unless Dir.exist?(directory)
+end
+
+def download_image(image_url, i1)
+  # code here
+end
+
 
 begin
   parser.parse!
@@ -63,14 +72,21 @@ begin
   options[:depth] = 0 unless options[:recursive]
   options[:url] = ARGV[0]
 
-rescue OptionParser::InvalidArgument, OptionParser::MissingArgument => e
+  html_content = fetch_html(options[:url])
+  if html_content.nil?
+    raise StandardError, "Failed to fetch page content from #{url}"
+  end
+
+  image_links = extract_image_links(html_content)
+
+  create_directory(options[:path])
+
+  image_links.each do |image_url|
+    download_image(image_url, options[:path])
+  end
+
+rescue OptionParser::InvalidArgument, OptionParser::MissingArgument, StandardError => e
   puts "Error: #{e.message}"
   puts parser.help
   exit 1
-end
-
-html_content = fetch_html(options[:url])
-if html_content
-  image_links = extract_image_links(html_content)
-  puts image_links
 end
