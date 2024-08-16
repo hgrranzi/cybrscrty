@@ -2,6 +2,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 require 'fileutils'
+require "open-uri"
 
 options = {
   recursive: false,
@@ -17,6 +18,9 @@ parser = OptionParser.new do |opts|
   end
 
   opts.on("-l N", Integer, "Max depth for recursion (requires -r)") do |level|
+    if level < 0
+      raise OptionParser::InvalidArgument, "Depth for recursion (-l) must be a positive integer."
+    end
     options[:depth] = level
   end
 
@@ -37,16 +41,16 @@ def fetch_html(url)
   end
 end
 
-def extract_image_links(html)
+def extract_image_links(html, base_url)
   img_sources = []
 
   img_regex = /<img[^>]+src=['"]([^'"]+)['"]/i # tmp regex
   html.scan(img_regex).each do |match|
-    img_sources << match[0]
+    img_url = URI.join(base_url, match[0]).to_s
+    img_sources << img_url if needed_image_format?(img_url)
   end
 
-  img_sources.select { |src| needed_image_format?(src) }
-
+  img_sources
 end
 
 def needed_image_format?(url)
@@ -57,10 +61,20 @@ def create_directory(directory)
   FileUtils.mkdir_p(directory) unless Dir.exist?(directory)
 end
 
-def download_image(image_url, i1)
-  # code here
-end
+def download_image(image_url, target)
+  filename = File.basename(image_url)
+  file_path = File.join(target, filename)
 
+  begin
+    URI.open(image_url) do |image|
+      File.open(file_path, "wb") do |file|
+        file.write(image.read)
+      end
+    end
+  rescue StandardError => e
+    puts "Warning: #{e.message}"
+  end
+end
 
 begin
   parser.parse!
@@ -74,19 +88,22 @@ begin
 
   html_content = fetch_html(options[:url])
   if html_content.nil?
-    raise StandardError, "Failed to fetch page content from #{url}"
+    raise StandardError, "Failed to fetch page content from #{options[:url]}"
   end
 
-  image_links = extract_image_links(html_content)
+  image_links = extract_image_links(html_content, options[:url])
 
-  create_directory(options[:path])
+  create_directory(options[:path]) unless image_links.empty?
 
   image_links.each do |image_url|
     download_image(image_url, options[:path])
   end
 
-rescue OptionParser::InvalidArgument, OptionParser::MissingArgument, StandardError => e
+rescue OptionParser::InvalidArgument, OptionParser::MissingArgument => e
   puts "Error: #{e.message}"
   puts parser.help
+  exit 1
+rescue StandardError => e
+  puts "Error: #{e.message}"
   exit 1
 end
