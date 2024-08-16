@@ -41,6 +41,27 @@ def fetch_html(url)
   end
 end
 
+def extract_links(html, base_url)
+  links = []
+  host = URI.parse(base_url).host
+
+  link_regex = /<a[^>]+href=['"]([^'"]+)['"]/i # tmp regex
+  html.scan(link_regex).each do |match|
+    link_url = match[0]
+    next if link_url.nil? || link_url.empty?
+    link_url = URI.join(base_url, link_url).to_s
+    begin
+      if URI.parse(link_url).host == host
+        links << link_url
+      end
+    rescue URI::InvalidURIError => e
+      puts "Warning: #{e}"
+    end
+  end
+
+  links.uniq
+end
+
 def extract_image_links(html, base_url)
   img_sources = []
 
