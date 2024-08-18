@@ -21,7 +21,7 @@ parser = OptionParser.new do |opts|
     if level < 0
       raise OptionParser::InvalidArgument, "Depth for recursion (-l) must be a positive integer."
     end
-    options[:depth] = level
+    options[:depth] = level < 5 ? level : 5
   end
 
   opts.on("-p PATH", "Directory path for saving downloaded files") do |path|
@@ -29,15 +29,40 @@ parser = OptionParser.new do |opts|
   end
 end
 
+def extract_image_links_recursively(url, depth, image_links)
+  html_content = fetch_html(url)
+  if html_content.nil?
+    return
+  end
+
+  image_links.concat(extract_image_links(html_content, url)).uniq!
+  if depth > 0
+    links = extract_links(html_content, url)
+    links.each do |link|
+      extract_image_links_recursively(link, depth - 1, image_links)
+    end
+  end
+end
+
 def fetch_html(url)
   uri = URI.parse(url)
   response = Net::HTTP.get_response(uri)
 
-  if response.is_a?(Net::HTTPSuccess)
-    response.body
+  case response
+  when Net::HTTPSuccess then
+    return response.body
+  when Net::HTTPRedirection then
+    location = response['location']
+    redirected_uri = URI.join(url, location)
+    if redirected_uri.host == uri.host
+      second_response = Net::HTTP.get_response(redirected_uri)
+      return second_response.is_a?(Net::HTTPSuccess) ? second_response.body : nil
+    else
+      return nil
+    end
   else
-    puts("Failed to fetch the page: #{response.message} (#{response.code})")
-    nil
+    puts "Warning: #{response.message} (#{response.code})"
+    return nil
   end
 end
 
@@ -107,12 +132,8 @@ begin
   options[:depth] = 0 unless options[:recursive]
   options[:url] = ARGV[0]
 
-  html_content = fetch_html(options[:url])
-  if html_content.nil?
-    raise StandardError, "Failed to fetch page content from #{options[:url]}"
-  end
-
-  image_links = extract_image_links(html_content, options[:url])
+  image_links = []
+  extract_image_links_recursively(options[:url], options[:depth], image_links)
 
   create_directory(options[:path]) unless image_links.empty?
 
